@@ -61,37 +61,6 @@ class Switch(StpSwitch):
     self.topology: Topology
         a link to the greater Topology structure used for message passing
     """
-
-    """
-    Notes:
-    StpSwitch send_message: wrapper to invoke so we do not have to use method in Topology directly.
-    Message: message used to communicate between switches, instantiated by: msg = Message(claimedRoot, distanceToRoot, originID, destinationID, pathThrough, timeToLive)
-
-    Each node must keep track of the best config message it has received so far, and compare against config message it is receiving from neighbors that round.
-    Node ID 3 first sends <3, 3, 0> -> between two configs, the node selects that one config is better if:
-    - Root of the config has a smaller ID or:
-    - Smaller distance from the root
-    - Ties are broken with smallest ID
-    - Stop sending messages over links when the node receveis a message that indicates it is not the root (either neighbor closer to root, or same distance but
-    smaller ID)
-
-    What I need to do: 
-    1. Use a data struct to keep track of spanning tree
-     - Must act in such a way to track each switch's own view of the three.
-     - Switch only has access to its member variables, to learn from a neighbor, the neighbor must send a message.
-    2. Data struct:
-     - var to store switch ID that this switch sees as root (every switch should start assuming it is the root)
-     - var to store distance to switch root
-     - list to store active links
-     - var to keep track of which neighbor it goes through to get to the root (ID I'm assuming)
-    3. Implement processing messages from immediate neighbor
-     - Determine whether root info update is needed (if receive message with lower claimedRoot)
-     - Update distance stored in data struct if switch updates the root or there is a shorter path to the same root
-     - Update switches active links (switch updates the root or there is a shorter path to same root)
-     (ref 2b)
-    4. Keep sending until TTL == 0
-    5. Write logging function
-    """
     def __init__(self, idNum: int, topolink: object, neighbors: list):
         """
         Invokes the super class constructor (StpSwitch), which makes the following
@@ -101,6 +70,8 @@ class Switch(StpSwitch):
             the ID number of this switch object
         neighbors: list
             the list of switch IDs connected to this switch object
+        switch_information: dict
+            information tracked local to this instance of Switch for implementation of STP
         """
         super(Switch, self).__init__(idNum, topolink, neighbors)
         # TODO: Define class members to keep track of which links are part of the spanning tree
