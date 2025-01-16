@@ -110,8 +110,8 @@ class Switch(StpSwitch):
         self.DISTANCE_TO_ROOT = "distance_to_root"
         self.ACTIVE_LINKS = "active_links"
         self.PATH_THROUGH = "path_through"
-        self.SHOULD_SEND_MESSAGES = "should_send_messages"
 
+        # Dictionary and initialization to manage information local to each instance of a switch
         self.switch_information = {}
         self._init_switch_information()
         
@@ -126,22 +126,22 @@ class Switch(StpSwitch):
         # TODO: This function needs to accept an incoming message and process it accordingly.
         #      This function is called every time the switch receives a new message.
 
-        # Boolean indication of if the switch should update based on ingress message
+        # Boolean indication of if the switch should update based on ingress message, defaulting to false
         should_switch_update = False
 
         print(f"\nSwitch {self.switchID} processing message:")
         print(f"Message details: root={message.root}, distance={message.distance}, origin={message.origin}, pathThrough={message.pathThrough}")
         print(f"Current switch state: root={self.switch_information[self.ROOT]}, distance={self.switch_information[self.DISTANCE_TO_ROOT]}")
 
-        # Special handling for root switch receiving pathThrough messages
-        if self.switch_information[self.ROOT] == self.switchID and message.pathThrough:
+        # Handle pathThrough messages for ALL switches
+        if message.pathThrough:
             if message.origin not in self.switch_information[self.ACTIVE_LINKS]:
                 self.switch_information[self.ACTIVE_LINKS].append(message.origin)
 
         # 1. Decrement the TTL, as this will determine if we forward the message
         message.ttl -= 1
 
-        # 2. Check the root on the incoming message
+        # 2. Should update root if message received with lower claimed root
         if message.root < self.switch_information[self.ROOT]:
             should_switch_update = True
 
@@ -182,13 +182,12 @@ class Switch(StpSwitch):
         # Generate formatted strings for each link
         link_strings = [f"{self.switchID} - {link}" for link in active_links]
         
-        # Join with commas - don't return empty string
         return ", ".join(link_strings) if link_strings else f"{self.switchID}"
 
     def _check_distances(self, message):
         """
         Method to handle checking the distance of this switch compared to the ingress message if
-        the root value is the same. (This just to avoid nested if statements.)
+        the root value is the same. 
 
         :param `message` ingress message from neighbor in STP
         :param `should_switch_update` simple indicator of whether the criteria have been met for switch
@@ -276,5 +275,5 @@ class Switch(StpSwitch):
             self.ROOT: self.switchID, # Initially all switches assume they are the root
             self.DISTANCE_TO_ROOT: 0, # Distance to root node, initially at 0
             self.ACTIVE_LINKS: [], # Links in the spanning tree, order will be maintained in python arrays
-            self.PATH_THROUGH: self.switchID, # Which neighbor to go through to reach root
+            self.PATH_THROUGH: self.switchID, # Which neighbor to go through to reach root (self, since assumed root)
         }
