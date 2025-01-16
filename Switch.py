@@ -217,41 +217,32 @@ class Switch(StpSwitch):
         return result # per assumption B
 
     def _handle_switch_updates(self, message):
-        """Updates switch state and sends messages to neighbors.
-
-        Three cases for active links updates:
-        1. When finding new path to root through different neighbor
-        2. When receiving pathThrough=True and originID not in activeLinks
-        3. When receiving pathThrough=False and originID in activeLinks
-        """
         old_path = self.switch_information[self.PATH_THROUGH]
-
+        
         print(f"\nSwitch {self.switchID} handling updates:")
         print(f"Before update - active_links: {self.switch_information[self.ACTIVE_LINKS]}")
         print(f"Old path: {old_path}, New path: {message.origin}")
         
-        # 1. Update basic info
+
+        # Update switch information
         self.switch_information[self.ROOT] = message.root
         self.switch_information[self.DISTANCE_TO_ROOT] = message.distance + 1
         self.switch_information[self.PATH_THROUGH] = message.origin
         
-        # 2. Update active links
-        # Remove old path if changed
-        if old_path != message.origin and old_path in self.switch_information[self.ACTIVE_LINKS]:
-            self.switch_information[self.ACTIVE_LINKS].remove(old_path)
-        
-        # Add new path
+        # Add new path to active links
         if message.origin not in self.switch_information[self.ACTIVE_LINKS]:
             self.switch_information[self.ACTIVE_LINKS].append(message.origin)
         
-        # Handle pathThrough
-        if message.pathThrough and message.origin not in self.switch_information[self.ACTIVE_LINKS]:
-            self.switch_information[self.ACTIVE_LINKS].append(message.origin)
+        # Handle bi-directional links
+        if message.pathThrough:
+            if message.origin not in self.switch_information[self.ACTIVE_LINKS]:
+                self.switch_information[self.ACTIVE_LINKS].append(message.origin)
         
         print(f"After update - active_links: {self.switch_information[self.ACTIVE_LINKS]}")
 
-        # 3. Send messages to all neighbors
+        # Send messages to all neighbors
         for neighbor in self.links:
+            # pathThrough is True if this neighbor uses us to reach root
             path_through = (neighbor == self.switch_information[self.PATH_THROUGH])
             print(f"neighbor={neighbor}, my_path={self.switch_information[self.PATH_THROUGH]}, pathThrough={path_through}")
 
