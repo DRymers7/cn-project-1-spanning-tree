@@ -257,13 +257,19 @@ class Switch(StpSwitch):
         """
         self._log_debug(f"Pruning active links on switch {self.switchID}. Old links: {self.switch_information[self.ACTIVE_LINKS]}")
         
-        # If the new path is actually ourselves (e.g., we remain root),
-        # then we might empty everything. Otherwise, keep just the new path neighbor.
+         # Start with empty list or just the new path if it's not ourselves
+        new_active_links = []
         if new_path != self.switchID:
-            self.switch_information[self.ACTIVE_LINKS] = [new_path]
-        else:
-            self.switch_information[self.ACTIVE_LINKS] = []
+            new_active_links = [new_path]
 
+        # Keep any existing links where the neighbor had indicated pathThrough=True
+        for link in self.switch_information[self.ACTIVE_LINKS]:
+            if link != new_path:  # Don't add new_path twice
+                # Keep neighbors that previously indicated they use us to reach root
+                if link in self.links:  # Verify it's still a valid neighbor
+                    new_active_links.append(link)
+
+        self.switch_information[self.ACTIVE_LINKS] = new_active_links
         self._log_debug(f"New active links on switch {self.switchID}: {self.switch_information[self.ACTIVE_LINKS]}")
 
     def _update_active_links(self, message):
