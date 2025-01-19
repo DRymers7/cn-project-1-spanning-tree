@@ -32,6 +32,7 @@
 
 from Message import Message
 from StpSwitch import StpSwitch
+import os
 
 
 class Switch(StpSwitch):
@@ -85,6 +86,9 @@ class Switch(StpSwitch):
         # Dictionary and initialization to manage information local to each instance of a switch
         self.switch_information = {}
         self._init_switch_information()
+
+        self._log_debug(f"Switch {self.switchID} initialized with neighbors: {neighbors}")
+
         
     def process_message(self, message: Message):
         """
@@ -98,6 +102,14 @@ class Switch(StpSwitch):
         #      This function is called every time the switch receives a new message.
 
         # Boolean indication of if the switch should update based on ingress message, defaulting to false
+
+        self._log_debug(f"\nSwitch {self.switchID} processing message: {message}")
+        self._log_debug(f"Message details: root={message.root}, distance={message.distance}, origin={message.origin}, pathThrough={message.pathThrough}")
+        self._log_debug(f"Current state: root={self.switch_information[self.ROOT]}, " +
+                    f"distance={self.switch_information[self.DISTANCE_TO_ROOT]}, " +
+                    f"active_links={self.switch_information[self.ACTIVE_LINKS]}, " +
+                    f"path_through={self.switch_information[self.PATH_THROUGH]}")
+        self._log_debug(f"Root comparison: message.root={message.root} < current_root={self.switch_information[self.ROOT]} = {message.root < self.switch_information[self.ROOT]}")
         should_switch_update = False
 
         # Handle pathThrough messages for ALL switches
@@ -106,14 +118,16 @@ class Switch(StpSwitch):
 
         # Decrement the TTL, as this will determine if we forward the message
         message.ttl -= 1
+        self._log_debug(f"TTL decremented to: {message.ttl}")
 
-        # Should update root if message received with lower claimed root
+        # Check for updates
         if message.root < self.switch_information[self.ROOT]:
+            self._log_debug(f"Better root found: {message.root} < {self.switch_information[self.ROOT]}")
             should_switch_update = True
 
-        # If the root is the same, check the distance
         elif message.root == self.switch_information[self.ROOT]:
             should_switch_update = self._check_distances(message)
+            self._log_debug(f"Equal roots, distance check result: {should_switch_update}")
 
         # Handle updates (this also sends the new messages to neighbors)
         if message.ttl > 0 and should_switch_update:
@@ -158,8 +172,11 @@ class Switch(StpSwitch):
         so update the active links array to include it.
         :param `message` original ingress message from neighbor node
         """
+        self._log_debug(f"Processing pathThrough for Switch {self.switchID}: message_origin={message.origin}")
+
         if message.origin not in self.switch_information[self.ACTIVE_LINKS]:
             self.switch_information[self.ACTIVE_LINKS].append(message.origin)
+            self._log_debug(f"Added {message.origin} to active_links: {self.switch_information[self.ACTIVE_LINKS]}")
 
     def _check_distances(self, message):
         """
@@ -174,6 +191,8 @@ class Switch(StpSwitch):
         :param `message` ingress message from neighbor node
         :returns boolean value indicating whether a switch update is needed or not
         """
+        self._log_debug(f"Distance check for Switch {self.switchID}: message_distance+1={message.distance + 1} vs current_distance={self.switch_information[self.DISTANCE_TO_ROOT]}")
+
         if message.distance + 1 < self.switch_information[self.DISTANCE_TO_ROOT]:
             return True
 
@@ -193,6 +212,7 @@ class Switch(StpSwitch):
         """
         # Check the ID against the path of this switch's neighbor
         result = message.origin < self.switch_information[self.PATH_THROUGH]
+        self._log_debug(f"Tiebreaker check for Switch {self.switchID}: message_origin={message.origin} vs current_path={self.switch_information[self.PATH_THROUGH]}, result={result}")
         return result 
 
     def _handle_switch_updates(self, message):
@@ -206,8 +226,22 @@ class Switch(StpSwitch):
 
         :param `message` ingress message from neighbor node
         """
+        """Handles needed updates to the switch"""
+        old_root = self.switch_information[self.ROOT]
+        old_distance = self.switch_information[self.DISTANCE_TO_ROOT]
+        old_path = self.switch_information[self.PATH_THROUGH]
+
+        self._log_debug(f"\nSwitch {self.switchID} handling updates:")
         self._update_basic_information(message)
-        self._update_active_links(message)
+
+        # 2) If the root or path_through changed, prune old active links
+        root_changed = (self.switch_information[self.ROOT] != old_root)
+        path_changed = (self.switch_information[self.PATH_THROUGH] != old_path)
+
+        if root_changed or path_changed:
+            self._prune_active_links(new_path=message.origin)
+
+        # self._update_active_links(message)
         self._handle_bidirectional_links(message)
         self._send_messages(message)    
 
@@ -216,19 +250,43 @@ class Switch(StpSwitch):
         self.switch_information[self.DISTANCE_TO_ROOT] = message.distance + 1
         self.switch_information[self.PATH_THROUGH] = message.origin
 
+    def _prune_active_links(self, new_path):
+        """
+        Clear out old active links and keep only our new path to the root.
+        This ensures we don't keep stale links from old root/distance.
+        """
+        self._log_debug(f"Pruning active links on switch {self.switchID}. Old links: {self.switch_information[self.ACTIVE_LINKS]}")
+        
+        # If the new path is actually ourselves (e.g., we remain root),
+        # then we might empty everything. Otherwise, keep just the new path neighbor.
+        if new_path != self.switchID:
+            self.switch_information[self.ACTIVE_LINKS] = [new_path]
+        else:
+            self.switch_information[self.ACTIVE_LINKS] = []
+
+        self._log_debug(f"New active links on switch {self.switchID}: {self.switch_information[self.ACTIVE_LINKS]}")
+
     def _update_active_links(self, message):
+        # Clear old path if updating to a new path through
+        self._log_debug(f"Updating active links. Current: {self.switch_information[self.ACTIVE_LINKS]}")
+
+        # Add new path through
         if message.origin not in self.switch_information[self.ACTIVE_LINKS]:
             self.switch_information[self.ACTIVE_LINKS].append(message.origin)
+            self._log_debug(f"Added new path through: {message.origin}")
 
     def _handle_bidirectional_links(self, message):
+        self._log_debug(f"Processing bidirectional links. PathThrough: {message.pathThrough}")
         if message.pathThrough:
             if message.origin not in self.switch_information[self.ACTIVE_LINKS]:
                 self.switch_information[self.ACTIVE_LINKS].append(message.origin)
+                self._log_debug(f"Added bidirectional link: {message.origin}")
 
     def _send_messages(self, message):
         for neighbor in self.links:
             # path_through is True if this neighbor uses this switch to reach root
             path_through = (neighbor == self.switch_information[self.PATH_THROUGH])
+
             new_message = Message(
                 self.switch_information[self.ROOT],
                 self.switch_information[self.DISTANCE_TO_ROOT],
@@ -238,6 +296,11 @@ class Switch(StpSwitch):
                 message.ttl
             )
             self.send_message(new_message)
+            self._log_debug(f"\nFinal State of switch: {self.switchID}:")
+            self._log_debug(f"Root: {self.switch_information[self.ROOT]}")
+            self._log_debug(f"Distance to root: {self.switch_information[self.DISTANCE_TO_ROOT]}")
+            self._log_debug(f"Active links: {self.switch_information[self.ACTIVE_LINKS]}")
+            self._log_debug(f"Path through: {self.switch_information[self.PATH_THROUGH]}")
 
     def _init_switch_information(self):
         """
@@ -250,3 +313,12 @@ class Switch(StpSwitch):
             self.ACTIVE_LINKS: [], # Links in the spanning tree, order will be maintained in python arrays
             self.PATH_THROUGH: self.switchID, # Which neighbor to go through to reach root (self, since assumed root)
         }
+
+    def _log_debug(self, message):
+        """Method to store debug messages"""
+        try:
+            log_path = "debug_logs.log"
+            with open(log_path, 'a') as log_file:
+                log_file.write(f"Switch: {self.switchID} === DEBUG: {message} \n")
+        except Exception as e:
+            print("Error writing logs.")
