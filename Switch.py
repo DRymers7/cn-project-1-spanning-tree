@@ -82,6 +82,7 @@ class Switch(StpSwitch):
         self.DISTANCE_TO_ROOT = "distance_to_root"
         self.ACTIVE_LINKS = "active_links"
         self.PATH_THROUGH = "path_through"
+        self.DEPENDENT_NODES = "dependent_nodes"
 
         # Dictionary and initialization to manage information local to each instance of a switch
         self.switch_information = {}
@@ -252,23 +253,24 @@ class Switch(StpSwitch):
 
     def _prune_active_links(self, new_path):
         """
-        Clear out old active links and keep only our new path to the root.
-        This ensures we don't keep stale links from old root/distance.
+        Clear out old active links but maintain bidirectional relationships.
+        Keep the new path to root and any neighbors that have indicated they use us to reach root.
         """
         self._log_debug(f"Pruning active links on switch {self.switchID}. Old links: {self.switch_information[self.ACTIVE_LINKS]}")
         
-         # Start with empty list or just the new path if it's not ourselves
+        # Start with empty list or just the new path if it's not ourselves
         new_active_links = []
         if new_path != self.switchID:
             new_active_links = [new_path]
 
-        # Keep any existing links where the neighbor had indicated pathThrough=True
-        for link in self.switch_information[self.ACTIVE_LINKS]:
-            if link != new_path:  # Don't add new_path twice
-                # Keep neighbors that previously indicated they use us to reach root
-                if link in self.links:  # Verify it's still a valid neighbor
-                    new_active_links.append(link)
-
+        # Only keep links from nodes that depend on us for current root
+        current_root = self.switch_information[self.ROOT]
+        if current_root in self.switch_information[self.DEPENDENT_NODES]:
+            dependent_nodes = self.switch_information[self.DEPENDENT_NODES][current_root]
+            for node in dependent_nodes:
+                if node in self.links and node != new_path:  # Don't add new_path twice
+                    new_active_links.append(node)
+        
         self.switch_information[self.ACTIVE_LINKS] = new_active_links
         self._log_debug(f"New active links on switch {self.switchID}: {self.switch_information[self.ACTIVE_LINKS]}")
 
@@ -282,11 +284,25 @@ class Switch(StpSwitch):
             self._log_debug(f"Added new path through: {message.origin}")
 
     def _handle_bidirectional_links(self, message):
+        """
+        Handle bidirectional link updates, ensuring only valid links are maintained.
+        A link is valid if it either leads to root or the neighbor uses us to reach root.
+        """
         self._log_debug(f"Processing bidirectional links. PathThrough: {message.pathThrough}")
+        
         if message.pathThrough:
-            if message.origin not in self.switch_information[self.ACTIVE_LINKS]:
-                self.switch_information[self.ACTIVE_LINKS].append(message.origin)
-                self._log_debug(f"Added bidirectional link: {message.origin}")
+            # Initialize set for this root if needed
+            if message.root not in self.switch_information[self.DEPENDENT_NODES]:
+                self.switch_information[self.DEPENDENT_NODES][message.root] = set()
+                
+            # Add this node as dependent for this root
+            self.switch_information[self.DEPENDENT_NODES][message.root].add(message.origin)
+            
+            # Only add to active links if same root
+            if message.root == self.switch_information[self.ROOT]:
+                if message.origin not in self.switch_information[self.ACTIVE_LINKS]:
+                    self.switch_information[self.ACTIVE_LINKS].append(message.origin)
+                    self._log_debug(f"Added bidirectional link: {message.origin}")
 
     def _send_messages(self, message):
         for neighbor in self.links:
@@ -318,6 +334,7 @@ class Switch(StpSwitch):
             self.DISTANCE_TO_ROOT: 0, # Distance to root node, initially at 0
             self.ACTIVE_LINKS: [], # Links in the spanning tree, order will be maintained in python arrays
             self.PATH_THROUGH: self.switchID, # Which neighbor to go through to reach root (self, since assumed root)
+            self.DEPENDENT_NODES: {} # Maps root -> set of nodes that use us for that root
         }
 
     def _log_debug(self, message):
