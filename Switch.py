@@ -100,24 +100,45 @@ class Switch(StpSwitch):
         # Boolean indication of if the switch should update based on ingress message, defaulting to false
         should_switch_update = False
 
-        # Handle pathThrough messages for ALL switches
-        if message.pathThrough:
-            self._update_paththrough(message)
-
-        # Decrement the TTL, as this will determine if we forward the message
-        message.ttl -= 1
-
-        # Should update root if message received with lower claimed root
         if message.root < self.switch_information[self.ROOT]:
-            should_switch_update = True
+            self.switch_information[self.ROOT] = message.root
+            self.switch_information[self.DISTANCE_TO_ROOT] = message.distance
 
-        # If the root is the same, check the distance
-        elif message.root == self.switch_information[self.ROOT]:
-            should_switch_update = self._check_distances(message)
+        if message.distance < self.switch_information[self.DISTANCE_TO_ROOT]:
+            self.switch_information[self.DISTANCE_TO_ROOT] = message.distance
 
-        # Handle updates (this also sends the new messages to neighbors)
-        if message.ttl > 0 and should_switch_update:
-            self._handle_switch_updates(message)
+        # . The switch receives a message with pathThrough = TRUE but does
+        # not have that originID in its activeLinks list. In this case, the switch
+        # should add originID to its activeLinks list
+        if message.pathThrough:
+            if message.origin not in self.switch_information[self.ACTIVE_LINKS]:
+                self.switch_information[self.ACTIVE_LINKS].append(message.origin)
+
+        # The switch finds a new path to the root (through a different
+        # neighbor). In this case, the switch should add the new link to
+        # activeLinks and removes the old link from activeLinks
+        # TODO
+
+        # The switch receives a message with pathThrough = FALSE but the
+        # switch has that originID in its activeLinks. In this case, the switch
+        # should remove originID from its activeLinks list
+        if message.pathThrough == False:
+            if message.origin in self.switch_information[self.ACTIVE_LINKS]:
+                self.switch_information[self.ACTIVE_LINKS].remove(message.origin)
+
+        message.ttl -= 1
+        if message.ttl != 0:
+            for neighbor in self.links:
+                path_through = (neighbor == self.switch_information[self.PATH_THROUGH])
+                message = Message(
+                    self.switch_information[self.ROOT],
+                    self.switch_information[self.DISTANCE_TO_ROOT],
+                    message.origin,
+                    neighbor,
+                    self.switch_information[self.PATH_THROUGH],
+                    message.ttl
+                )
+
 
     def generate_logstring(self):
         """
