@@ -100,17 +100,11 @@ class Switch(StpSwitch):
         # Boolean value to determine if update needed (part a)
         should_update = False
         
-        # # If the message root is lower than the perceived root on the switch, we update (part a)
-        # if message.root < self.switch_information[self.ROOT]:
-        #     should_update = True
-        
-        # # Check the distance, and if the message origin is a better path to root (part a)
-        # elif message.root == self.switch_information[self.ROOT]:
-        #     should_update = self._handle_distance_check(message)
-
+        # If the message root is lower than the perceived root
         if message.root < self.switch_information[self.ROOT]:
             should_update = True
-        
+
+        # If the roots match, handle tie-breaking or improved distances
         elif message.root == self.switch_information[self.ROOT]:
             should_update = self._handle_distance_check(message)
             
@@ -122,9 +116,12 @@ class Switch(StpSwitch):
         if message.pathThrough:
             if message.origin not in self.switch_information[self.ACTIVE_LINKS]:
                 self.switch_information[self.ACTIVE_LINKS].append(message.origin)
-        elif message.origin != self.switch_information[self.PATH_THROUGH]:
+        else:
+            # If this neighbor was previously marked active, but now says pathThrough=False
             if message.origin in self.switch_information[self.ACTIVE_LINKS]:
-                self.switch_information[self.ACTIVE_LINKS].remove(message.origin)
+                # and it's not our current path-through, remove it
+                if message.origin != self.switch_information[self.PATH_THROUGH]:
+                    self.switch_information[self.ACTIVE_LINKS].remove(message.origin)
 
         # Decrement TTL AFTER the message has been processed (part c)
         message.ttl -= 1
@@ -141,11 +138,14 @@ class Switch(StpSwitch):
         2. If this value is equal, then if the message is a better path to the root, then we should
         also update.
         """
-        if message.distance + 1 < self.switch_information[self.DISTANCE_TO_ROOT]:
+        if (message.distance + 1) < self.switch_information[self.DISTANCE_TO_ROOT]:
             return True
+
+        # If the distance is the same, check the tie-break rule:
+        # we choose the neighbor with the lower ID as our path to the root
         elif message.distance + 1 == self.switch_information[self.DISTANCE_TO_ROOT]:
             # Only use lower ID tie-breaker if both paths are valid
-            if message.pathThrough and message.origin < self.switch_information[self.PATH_THROUGH]:
+            if message.origin < self.switch_information[self.PATH_THROUGH]:
                 return True
         return False
             
