@@ -97,48 +97,74 @@ class Switch(StpSwitch):
         # TODO: This function needs to accept an incoming message and process it accordingly.
         #      This function is called every time the switch receives a new message.
 
-        # Boolean indication of if the switch should update based on ingress message, defaulting to false
-        should_switch_update = False
+        print(f"\nSwitch {self.switchID} received message: root={message.root}, dist={message.distance}, origin={message.origin}, pathThrough={message.pathThrough}, ttl={message.ttl}")
+        print(f"Switch {self.switchID} current state: root={self.switch_information[self.ROOT]}, dist={self.switch_information[self.DISTANCE_TO_ROOT]}, path={self.switch_information[self.PATH_THROUGH]}")
 
+        # Part a: Determine if root update is needed
+        should_update = False
+        
         if message.root < self.switch_information[self.ROOT]:
+            should_update = True
+            print(f"Switch {self.switchID} updating due to lower root: {message.root} < {self.switch_information[self.ROOT]}")
+        
+        elif message.root == self.switch_information[self.ROOT]:
+            if message.distance + 1 < self.switch_information[self.DISTANCE_TO_ROOT]:
+                should_update = True
+                print(f"Switch {self.switchID} updating due to shorter path: {message.distance + 1} < {self.switch_information[self.DISTANCE_TO_ROOT]}")
+            elif message.distance + 1 == self.switch_information[self.DISTANCE_TO_ROOT]:
+                if message.origin < self.switch_information[self.PATH_THROUGH]:
+                    should_update = True
+                    print(f"Switch {self.switchID} updating due to lower neighbor ID: {message.origin} < {self.switch_information[self.PATH_THROUGH]}")
+                
+        if should_update:
+            old_path = self.switch_information[self.PATH_THROUGH]
+            
             self.switch_information[self.ROOT] = message.root
-            self.switch_information[self.DISTANCE_TO_ROOT] = message.distance
+            self.switch_information[self.DISTANCE_TO_ROOT] = message.distance + 1
+            self.switch_information[self.PATH_THROUGH] = message.origin
+            print(f"Switch {self.switchID} after update: root={self.switch_information[self.ROOT]}, dist={self.switch_information[self.DISTANCE_TO_ROOT]}, path={self.switch_information[self.PATH_THROUGH]}")
 
-        if message.distance < self.switch_information[self.DISTANCE_TO_ROOT]:
-            self.switch_information[self.DISTANCE_TO_ROOT] = message.distance
-
-        # . The switch receives a message with pathThrough = TRUE but does
-        # not have that originID in its activeLinks list. In this case, the switch
-        # should add originID to its activeLinks list
+            if old_path != self.switchID:  
+                if old_path in self.switch_information[self.ACTIVE_LINKS]:
+                    print(f"Switch {self.switchID} removing old path {old_path} from active links")
+                    self.switch_information[self.ACTIVE_LINKS].remove(old_path)
+            
+            if message.origin not in self.switch_information[self.ACTIVE_LINKS]:
+                print(f"Switch {self.switchID} adding new path {message.origin} to active links")
+                self.switch_information[self.ACTIVE_LINKS].append(message.origin)
+                
         if message.pathThrough:
             if message.origin not in self.switch_information[self.ACTIVE_LINKS]:
+                print(f"Switch {self.switchID} adding {message.origin} to active links due to pathThrough=True")
                 self.switch_information[self.ACTIVE_LINKS].append(message.origin)
-
-        # The switch finds a new path to the root (through a different
-        # neighbor). In this case, the switch should add the new link to
-        # activeLinks and removes the old link from activeLinks
-        # TODO
-
-        # The switch receives a message with pathThrough = FALSE but the
-        # switch has that originID in its activeLinks. In this case, the switch
-        # should remove originID from its activeLinks list
-        if message.pathThrough == False:
+        elif message.origin != self.switch_information[self.PATH_THROUGH]:
             if message.origin in self.switch_information[self.ACTIVE_LINKS]:
+                print(f"Switch {self.switchID} removing {message.origin} from active links due to pathThrough=False")
                 self.switch_information[self.ACTIVE_LINKS].remove(message.origin)
 
+        print(f"Switch {self.switchID} final state: active_links={self.switch_information[self.ACTIVE_LINKS]}")
+
+        # Part c: Message sending
         message.ttl -= 1
-        if message.ttl != 0:
+            
+        if message.ttl > 0:
+            print(f"Switch {self.switchID} sending messages to neighbors, ttl={message.ttl}")
             for neighbor in self.links:
-                path_through = (neighbor == self.switch_information[self.PATH_THROUGH])
-                message = Message(
+                # If this neighbor uses us to get to root OR we use them to get to root
+                path_through = (neighbor == self.switch_information[self.PATH_THROUGH] or 
+                            self.switchID == self.switch_information[self.PATH_THROUGH])
+                
+                new_message = Message(
                     self.switch_information[self.ROOT],
                     self.switch_information[self.DISTANCE_TO_ROOT],
-                    message.origin,
+                    self.switchID,
                     neighbor,
-                    self.switch_information[self.PATH_THROUGH],
+                    path_through,
                     message.ttl
                 )
-
+                self.send_message(new_message)
+        else:
+            print(f"Switch {self.switchID} TTL=0, not forwarding messages")
 
     def generate_logstring(self):
         """
