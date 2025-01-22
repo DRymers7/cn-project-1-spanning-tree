@@ -100,14 +100,20 @@ class Switch(StpSwitch):
         # Boolean value to determine if update needed (part a)
         should_update = False
         
-        # If the message root is lower than the perceived root on the switch, we update (part a)
+        # # If the message root is lower than the perceived root on the switch, we update (part a)
+        # if message.root < self.switch_information[self.ROOT]:
+        #     should_update = True
+        
+        # # Check the distance, and if the message origin is a better path to root (part a)
+        # elif message.root == self.switch_information[self.ROOT]:
+        #     should_update = self._handle_distance_check(message)
+
         if message.root < self.switch_information[self.ROOT]:
             should_update = True
         
-        # Check the distance, and if the message origin is a better path to root (part a)
         elif message.root == self.switch_information[self.ROOT]:
             should_update = self._handle_distance_check(message)
-
+            
         # Update information on the switch, if should_update is true
         if should_update:
             self._handle_switch_updates(message)
@@ -138,7 +144,8 @@ class Switch(StpSwitch):
         if message.distance + 1 < self.switch_information[self.DISTANCE_TO_ROOT]:
             return True
         elif message.distance + 1 == self.switch_information[self.DISTANCE_TO_ROOT]:
-            if message.origin < self.switch_information[self.PATH_THROUGH]:
+            # Only use lower ID tie-breaker if both paths are valid
+            if message.pathThrough and message.origin < self.switch_information[self.PATH_THROUGH]:
                 return True
         return False
             
