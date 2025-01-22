@@ -61,7 +61,6 @@ class Switch(StpSwitch):
     self.topology: Topology
         a link to the greater Topology structure used for message passing
     """
-
     def __init__(self, idNum: int, topolink: object, neighbors: list):
         """
         Invokes the super class constructor (StpSwitch), which makes the following
@@ -71,10 +70,22 @@ class Switch(StpSwitch):
             the ID number of this switch object
         neighbors: list
             the list of switch IDs connected to this switch object
+        switch_information: dict
+            information tracked local to this instance of Switch for implementation of STP
         """
         super(Switch, self).__init__(idNum, topolink, neighbors)
         # TODO: Define class members to keep track of which links are part of the spanning tree
 
+        # String constants to avoid having magic strings
+        self.ROOT = "root"
+        self.DISTANCE_TO_ROOT = "distance_to_root"
+        self.ACTIVE_LINKS = "active_links"
+        self.PATH_THROUGH = "path_through"
+
+        # Dictionary and initialization to manage information local to each instance of a switch
+        self.switch_information = {}
+        self._init_switch_information()
+        
     def process_message(self, message: Message):
         """
         Processes the messages from other switches. Updates its own data (members),
@@ -85,6 +96,96 @@ class Switch(StpSwitch):
         """
         # TODO: This function needs to accept an incoming message and process it accordingly.
         #      This function is called every time the switch receives a new message.
+
+        # Boolean value to determine if update needed (part a)
+        should_update = False
+        
+        # If the message root is lower than the perceived root on the switch, we update (part a)
+        if message.root < self.switch_information[self.ROOT]:
+            should_update = True
+        
+        # Check the distance, and if the message origin is a better path to root (part a)
+        elif message.root == self.switch_information[self.ROOT]:
+            should_update = self._handle_distance_check(message)
+
+        # Update information on the switch, if should_update is true
+        if should_update:
+            self._handle_switch_updates(message)
+                
+        # Handle path through updates (part b - III)
+        if message.pathThrough:
+            if message.origin not in self.switch_information[self.ACTIVE_LINKS]:
+                self.switch_information[self.ACTIVE_LINKS].append(message.origin)
+        elif message.origin != self.switch_information[self.PATH_THROUGH]:
+            if message.origin in self.switch_information[self.ACTIVE_LINKS]:
+                self.switch_information[self.ACTIVE_LINKS].remove(message.origin)
+
+        # Decrement TTL AFTER the message has been processed (part c)
+        message.ttl -= 1
+            
+        # Handle message sending to enighbors (part c)
+        if message.ttl > 0:
+            self._send_messages_to_neighbors(message)
+
+    def _handle_distance_check(self, message):
+        """
+        Method to handle distance check (if root value is even)
+
+        1. Evaluates if the message distance (+1) is lower than the distance on the switch
+        2. If this value is equal, then if the message is a better path to the root, then we should
+        also update.
+        """
+        if message.distance + 1 < self.switch_information[self.DISTANCE_TO_ROOT]:
+            return True
+        elif message.distance + 1 == self.switch_information[self.DISTANCE_TO_ROOT]:
+            if message.origin < self.switch_information[self.PATH_THROUGH]:
+                return True
+        return False
+            
+    def _handle_switch_updates(self, message):
+        """
+        Method to handle switch updates. Handles the following:
+
+        1. Updates the switch perceived root to that value on the ingress message
+        2. Updates the distance to the distance on the message + 1
+        3. Updates the path through value to be the origin of the message 
+        4. Checks to remove the old path from active links if applicable (part b)
+        5. Checks to add message origin to active links if applicable (part b)
+        """
+        old_path = self.switch_information[self.PATH_THROUGH]
+        
+        self.switch_information[self.ROOT] = message.root
+        self.switch_information[self.DISTANCE_TO_ROOT] = message.distance + 1
+        self.switch_information[self.PATH_THROUGH] = message.origin
+
+        if old_path != self.switchID:  
+            if old_path in self.switch_information[self.ACTIVE_LINKS]:
+                self.switch_information[self.ACTIVE_LINKS].remove(old_path)
+        
+        if message.origin not in self.switch_information[self.ACTIVE_LINKS]:
+            self.switch_information[self.ACTIVE_LINKS].append(message.origin)
+
+    def _send_messages_to_neighbors(self, message):
+        """
+        Method to handle forwarding messages to neighbors of this switch. Does the following:
+
+        1. For each neighbor in the links struct
+        2. Evaluate if that neighbor uses us to get to the root or if we use them to get to the root
+        3. Populate and send a new instance of `Message()`
+        """
+        for neighbor in self.links:
+            path_through = (neighbor == self.switch_information[self.PATH_THROUGH] or 
+                        self.switchID == self.switch_information[self.PATH_THROUGH])
+            
+            new_message = Message(
+                self.switch_information[self.ROOT],
+                self.switch_information[self.DISTANCE_TO_ROOT],
+                self.switchID,
+                neighbor,
+                path_through,
+                message.ttl
+            )
+            self.send_message(new_message)
 
     def generate_logstring(self):
         """
@@ -106,4 +207,25 @@ class Switch(StpSwitch):
         #      2 - 1, 2 - 3
         #
         #      A full example of a valid output file is included (Logs/) in the project skeleton.
-        return "# - #, # - #, # - #"
+
+        # Get active links and sort them
+        active_links = sorted(self.switch_information[self.ACTIVE_LINKS])
+        
+        # Generate formatted strings for each link
+        link_strings_array = []
+        for link in active_links:
+            link_strings_array.append(f"{self.switchID} - {link}")
+        
+        return ", ".join(link_strings_array) if link_strings_array else f"{self.switchID}"
+    
+    def _init_switch_information(self):
+        """
+        Initialization method to create necessary member variables inside of the switch_information
+        dictionary, assuming that each switch starts as the root.
+        """
+        self.switch_information = {
+            self.ROOT: self.switchID, # Initially all switches assume they are the root
+            self.DISTANCE_TO_ROOT: 0, # Distance to root node, initially at 0
+            self.ACTIVE_LINKS: [], # Links in the spanning tree, order will be maintained in python arrays
+            self.PATH_THROUGH: self.switchID, # Which neighbor to go through to reach root (self, since assumed root)
+        }
