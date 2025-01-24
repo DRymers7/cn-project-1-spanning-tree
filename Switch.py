@@ -100,11 +100,11 @@ class Switch(StpSwitch):
         # Boolean value to determine if update needed (part a)
         should_update = False
         
-        # If the message root is lower than the perceived root
+        # If the message root is lower than the perceived root, update needed
         if message.root < self.switch_information[self.ROOT]:
             should_update = True
 
-        # If the roots match, handle tie-breaking or improved distances
+        # If the roots match, handle tie-breaking (part a - II)
         elif message.root == self.switch_information[self.ROOT]:
             should_update = self._handle_distance_check(message)
             
@@ -117,9 +117,9 @@ class Switch(StpSwitch):
             if message.origin not in self.switch_information[self.ACTIVE_LINKS]:
                 self.switch_information[self.ACTIVE_LINKS].append(message.origin)
         else:
-            # If this neighbor was previously marked active, but now says pathThrough=False
+            # If paththrough == False -> if origin ID in active links
             if message.origin in self.switch_information[self.ACTIVE_LINKS]:
-                # and it's not our current path-through, remove it
+                # AND it is not our current path through, remove
                 if message.origin != self.switch_information[self.PATH_THROUGH]:
                     self.switch_information[self.ACTIVE_LINKS].remove(message.origin)
 
@@ -141,9 +141,7 @@ class Switch(StpSwitch):
         if (message.distance + 1) < self.switch_information[self.DISTANCE_TO_ROOT]:
             return True
 
-        # If the distance is the same, check the tie-break rule:
-        # we choose the neighbor with the lower ID as our path to the root
-        elif message.distance + 1 == self.switch_information[self.DISTANCE_TO_ROOT]:
+        elif (message.distance + 1) == self.switch_information[self.DISTANCE_TO_ROOT]:
             # Only use lower ID tie-breaker if both paths are valid
             if message.origin < self.switch_information[self.PATH_THROUGH]:
                 return True
@@ -218,7 +216,6 @@ class Switch(StpSwitch):
         # Get active links and sort them
         active_links = sorted(self.switch_information[self.ACTIVE_LINKS])
         
-        # Generate formatted strings for each link
         link_strings_array = []
         for link in active_links:
             link_strings_array.append(f"{self.switchID} - {link}")
